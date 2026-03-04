@@ -1,0 +1,564 @@
+/* ============================================
+   Tamerlane Chess - Modern React Styles
+   ============================================ */
+
+:root {
+  /* Colors */
+  --bg-primary: #0f0f1a;
+  --bg-secondary: #1a1a2e;
+  --bg-card: #16213e;
+  --text-primary: #e8e8e8;
+  --text-secondary: #a0a0a0;
+  --accent-primary: #00d9ff;
+  --accent-secondary: #7b2cbf;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+
+  /* Board colors */
+  --square-light: #e8dcc4;
+  --square-dark: #b58863;
+  --square-selected: rgba(0, 217, 255, 0.5);
+  --square-valid: rgba(16, 185, 129, 0.6);
+
+  /* Sizing */
+  --square-size: 60px;
+  --border-radius: 12px;
+}
+
+body.light-theme {
+  /* Light Mode Overrides */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-card: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --accent-primary: #2563eb;
+  --accent-secondary: #4f46e5;
+  --success: #16a34a;
+
+  /* Board Colors - maintain contrast but maybe slightly lighter/cleaner */
+  --square-light: #cbd5e1;
+  /* Slate-300 */
+  --square-dark: #64748b;
+  /* Slate-500 */
+  --square-selected: rgba(37, 99, 235, 0.5);
+  --square-valid: rgba(22, 163, 74, 0.5);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  background: linear-gradient(
+    135deg,
+    var(--bg-primary) 0%,
+    var(--bg-secondary) 100%
+  );
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* ============================================
+   App Layout
+   ============================================ */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  text-align: center;
+  padding: 2rem;
+  background: linear-gradient(
+    180deg,
+    rgba(26, 26, 46, 0.9) 0%,
+    transparent 100%
+  );
+}
+
+.header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  background: linear-gradient(
+    135deg,
+    var(--accent-primary) 0%,
+    var(--accent-secondary) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 0.5rem;
+}
+
+.header p {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+}
+
+.main-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2rem;
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.game-area {
+  flex-shrink: 0;
+}
+
+.sidebar {
+  width: 300px;
+  min-width: 280px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ============================================
+   Board Styles
+   ============================================ */
+
+/* ============================================
+   Board Styles - Fluid Aspect Ratio 1.3 (13/10)
+   ============================================ */
+
+.board-container {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  /* 
+     Aspect Ratio 1.3 cover the 11x10 board + 2 buffer columns for citadels.
+     11 cols board + 1 col left citadel + 1 col right citadel = 13 cols.
+     Height = 10 rows.
+     Ratio = 13 / 10 = 1.3
+  */
+  aspect-ratio: 1.3;
+  margin: 0 auto;
+  /* Center the inner board */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  background: transparent; /* Container is transparent now */
+  padding: 0;
+}
+
+.board {
+  width: 84.61538%;
+  height: 100%;
+
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  grid-template-rows: repeat(10, 1fr);
+
+  /* Border and visual styles moved here */
+  background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary));
+
+  /* Use box-shadow for border to prevent layout compression and allow citadels to overlap */
+  box-shadow:
+    0 0 0 12px var(--bg-card),
+    /* Main Border - Thick and Matches Card BG */ 0 25px 50px -12px
+      rgba(0, 0, 0, 0.5),
+    0 0 0 13px rgba(255, 255, 255, 0.1); /* Outer Hairline */
+
+  border-radius: 4px; /* Restored radius */
+  position: relative;
+  z-index: 1; /* Board is base layer */
+  box-sizing: border-box;
+}
+
+/* The Citadels container overlay matches Board dimensions exactly */
+.citadels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 84.61538%;
+  margin: 0 auto;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2; /* Citadels sit ON TOP of the board border */
+}
+
+/* ============================================
+   Square Styles
+   ============================================ */
+
+.square {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.square.light {
+  background-color: var(--square-light);
+}
+
+.square.dark {
+  background-color: var(--square-dark);
+}
+
+.square:hover {
+  filter: brightness(1.1);
+}
+
+.square.selected {
+  background-color: var(--square-selected) !important;
+  box-shadow: inset 0 0 0 3px var(--accent-primary);
+}
+
+.square.valid-move {
+  background-color: var(--square-valid) !important;
+}
+
+.square.valid-move::after {
+  content: "";
+  position: absolute;
+  width: 30%;
+  height: 30%;
+  background: rgba(16, 185, 129, 0.8);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.square.in-check {
+  background: radial-gradient(
+    circle,
+    rgba(239, 68, 68, 0.9) 0%,
+    rgba(220, 38, 38, 0.4) 100%
+  ) !important;
+  box-shadow: inset 0 0 15px rgba(220, 38, 38, 0.8);
+  animation: pulse-check 1.5s infinite;
+}
+
+@keyframes pulse-check {
+  0% {
+    box-shadow: inset 0 0 10px rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: inset 0 0 25px rgba(239, 68, 68, 0.9);
+  }
+  100% {
+    box-shadow: inset 0 0 10px rgba(239, 68, 68, 0.4);
+  }
+}
+
+.square.citadel {
+  position: absolute;
+  pointer-events: auto;
+}
+
+/* Citadel positioning handled inline by Board.tsx using percentages */
+
+.move-indicator {
+  width: 30%;
+  height: 30%;
+  background: rgba(16, 185, 129, 0.8);
+  border-radius: 50%;
+}
+
+/* ============================================
+   Piece Styles
+   ============================================ */
+
+.piece {
+  width: 85%;
+  height: 85%;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.4));
+  transition: transform 0.1s ease;
+}
+
+.square:hover .piece {
+  transform: scale(1.05);
+}
+
+/* ============================================
+   Sidebar Components
+   ============================================ */
+
+.game-info,
+.controls {
+  background: var(--bg-card);
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.game-info h3,
+.controls h3 {
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+  color: var(--accent-primary);
+}
+
+.status-box {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.current-turn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.current-turn .emoji {
+  font-size: 1.5rem;
+}
+
+.status-message {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.move-count {
+  font-size: 0.85rem;
+  color: var(--accent-secondary);
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 0.875rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 1rem;
+}
+
+.btn-primary {
+  background: linear-gradient(
+    135deg,
+    var(--accent-primary),
+    var(--accent-secondary)
+  );
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 217, 255, 0.3);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* ============================================
+   Instructions
+   ============================================ */
+
+.instructions {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.instructions h4 {
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+}
+
+.instructions ul {
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.instructions li {
+  padding: 0.25rem 0;
+  padding-left: 1.25rem;
+  position: relative;
+}
+
+.instructions li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: var(--accent-primary);
+}
+
+/* ============================================
+   Online Multiplayer
+   ============================================ */
+
+.online-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.online-section h4 {
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  color: var(--accent-primary);
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  margin-bottom: 0.75rem;
+}
+
+.btn-success:hover {
+  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-success:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.join-room {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.room-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.75rem;
+  border: 2px solid var(--bg-primary);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.room-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.room-input::placeholder {
+  color: var(--text-secondary);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.btn-join {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  padding: 0.75rem 1rem;
+  white-space: nowrap;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.btn-join:hover:not(:disabled) {
+  box-shadow: 0 8px 25px rgba(245, 158, 11, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-join:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.room-info {
+  padding: 0.75rem;
+  background: var(--bg-primary);
+  border-radius: 8px;
+}
+
+.room-code-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.room-code-display .label {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.room-code-display .code {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+  letter-spacing: 0.15em;
+}
+
+.player-color {
+  text-align: center;
+  padding: 0.5rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* Responsive adjustments handled by aspect-ratio 1.3 on .board-container */
+
+@media (max-width: 900px) {
+  .main-container {
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-width: 550px;
+  }
+}
+
+@media (max-width: 700px) {
+  /* Ensure board fits on small screens without overflow if possible */
+  .board-container {
+    width: 100%;
+  }
+}
