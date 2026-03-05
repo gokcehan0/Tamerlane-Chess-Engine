@@ -29,9 +29,8 @@ To achieve Grandmaster-level calculations without slowing down the browser, the 
 - **128 MB Zobrist Transposition Table:** Rather than re-evaluating the same sequence of moves, every unique board state is assigned a 64-bit Hash (Zobrist keys). If the AI reaches a position it already calculated from a different move order, it instantly fetches the stored mathematically optimal line, preserving exponential processing power.
 - **Heuristic Piece-Square Tables (PST) & Mobility Calculations:** Gives the bot spatial awareness. Every specific piece type is assigned a geographical heatmap. For example, it calculates the vast domination range of a Giraffe, the fragility of a Camel in the dangerous central files, and highly prioritizes defending the two Citadels. It also calculates dynamic piece mobility: an immobilized piece is drastically lowered in value.
 - **True Random Seed Jitter:** Chess engines can often play identically the same sequence. Powered by `js_sys::Math::random()`, the engine mathematically modifies centipawn evaluations capriciously every turn at the root. This guarantees non-deterministic, ever-changing Tamerlane openings.
-
 ![Tamerlane Chess Bot UI](screenshot/bot.png)
-
+_If you liked this, check out this project. : https://github.com/gokcehan0/Tamerlane-Chess-Platform_
 ## 🚀 Installation & How to Play Locally
 
 To run this project on your machine, you will need [Node.js](https://nodejs.org/) installed. The Rust WASM bindings are pre-compiled and included in the repository, meaning **you do not need a Rust toolchain** just to play the game!
@@ -66,3 +65,4 @@ Currently, the bot uses Hand-Crafted Evaluations (HCE) to judge positions. Given
 ---
 
 _Note: Tamerlane Chess has an extensive, highly complex historical rulebook. For the sake of playability, performance, and standardizing the engine, a few ultra-specific edge-case rules regarding Royal piece promotions and strict Citadel interactions have been streamlined or excluded. These do not impact the core strategy or depth of the game._
+
