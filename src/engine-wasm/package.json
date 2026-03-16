@@ -4,11 +4,9 @@
   "version": "1.0.0",
   "files": [
     "tamerlane_engine_bg.wasm",
-    "tamerlane_engine.js",
-    "tamerlane_engine.d.ts"
+    "tamerlane_engine.js"
   ],
   "main": "tamerlane_engine.js",
-  "types": "tamerlane_engine.d.ts",
   "sideEffects": [
     "./snippets/*"
   ]

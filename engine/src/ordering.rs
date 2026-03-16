@@ -1,7 +1,28 @@
 /// Tamerlane Chess Engine — Move Ordering
-/// Orders moves for better alpha-beta pruning: TT move > captures (MVV-LVA) > killers > history.
+/// Orders moves for better alpha-beta pruning: TT move > captures (SEE) > killers > countermoves > history.
 
 use crate::types::*;
+use crate::board::*;
+
+// ─── SEE piece values ────────────────────────────────────────────
+
+/// Simple piece values for SEE (Static Exchange Evaluation)
+pub fn see_value(p: Piece) -> i32 {
+    match p.kind_index() {
+        0 => 500,   // Rook
+        1 => 325,   // Knight
+        2 => 300,   // Catapult
+        3 => 300,   // Giraffe
+        4 => 150,   // Minister
+        5 => 10000, // King
+        6 => 150,   // Advisor
+        7 => 160,   // Elephant
+        8 => 160,   // Camel
+        9 => 140,   // Warengine
+        10 => 100,  // Pawn
+        _ => 0,
+    }
+}
 
 // ─── MVV-LVA tables ──────────────────────────────────────────────
 
@@ -42,12 +63,22 @@ fn attacker_value(p: Piece) -> i32 {
 // ─── Move scoring ────────────────────────────────────────────────
 
 pub const SCORE_TT_MOVE: i32 = 10_000_000;
+pub const SCORE_GOOD_CAPTURE: i32 = 5_000_000;   // Winning/equal captures (SEE >= 0)
 pub const SCORE_CAPTURE_BASE: i32 = 1_000_000;
 pub const SCORE_KILLER1: i32 = 900_000;
 pub const SCORE_KILLER2: i32 = 800_000;
+pub const SCORE_COUNTERMOVE: i32 = 700_000;
+pub const SCORE_BAD_CAPTURE: i32 = -100_000;      // Losing captures (SEE < 0)
 
 pub fn score_capture(captured: Piece, attacker: Piece) -> i32 {
-    SCORE_CAPTURE_BASE + victim_value(captured) * 100 - attacker_value(attacker)
+    let mvv_lva = victim_value(captured) * 100 - attacker_value(attacker);
+    // Simple SEE approximation: if attacker is less valuable than victim, it's a good capture
+    if see_value(attacker) <= see_value(captured) {
+        SCORE_GOOD_CAPTURE + mvv_lva
+    } else {
+        // Might still be good (e.g. protected), but rank lower
+        SCORE_CAPTURE_BASE + mvv_lva
+    }
 }
 
 // ─── Killer moves ────────────────────────────────────────────────
@@ -81,6 +112,41 @@ impl Killers {
     }
 }
 
+// ─── Countermove heuristic ──────────────────────────────────────
+
+/// Countermove table: for each previous move's (from, to), store the best reply.
+/// Indexed by [from_sq][to_sq] — 270 × 270 would be too large.
+/// Instead use [piece_type * 2 + color][to_sq]
+pub struct CounterMoveTable {
+    pub table: Box<[[Move; MAILBOX_SIZE]; 22]>,
+}
+
+impl CounterMoveTable {
+    pub fn new() -> Self {
+        CounterMoveTable {
+            table: Box::new([[MOVE_NONE; MAILBOX_SIZE]; 22]),
+        }
+    }
+
+    fn index(piece: Piece) -> usize {
+        let kind = piece.kind_index();
+        let color = if piece.is_white() { 0 } else { 1 };
+        kind * 2 + color
+    }
+
+    pub fn store(&mut self, prev_piece: Piece, prev_to: usize, counter_mv: Move) {
+        if prev_piece == Piece::Empty || prev_to >= MAILBOX_SIZE { return; }
+        let idx = Self::index(prev_piece);
+        self.table[idx][prev_to] = counter_mv;
+    }
+
+    pub fn probe(&self, prev_piece: Piece, prev_to: usize) -> Move {
+        if prev_piece == Piece::Empty || prev_to >= MAILBOX_SIZE { return MOVE_NONE; }
+        let idx = Self::index(prev_piece);
+        self.table[idx][prev_to]
+    }
+}
+
 // ─── History heuristic ──────────────────────────────────────────
 
 /// History table: [piece_kind * 2 + color][to_sq] — compact representation
@@ -102,18 +168,27 @@ impl HistoryTable {
         kind * 2 + color
     }
 
+    /// Record a history bonus for a move that caused a beta cutoff
     pub fn add(&mut self, from: usize, to: usize, depth: i32) {
-        // Simple: use 'to' square only (more common approach)
         let _ = from;
-        // We don't have the piece info here, so just use from/to hash
         let idx = (from % 22) as usize;
         self.table[idx][to] += depth * depth;
+        // Age history scores to prevent overflow
         if self.table[idx][to] > 500_000 {
             for row in self.table.iter_mut() {
                 for val in row.iter_mut() {
                     *val /= 2;
                 }
             }
+        }
+    }
+
+    /// Penalize quiet moves that didn't cause a cutoff (butterfly history)
+    pub fn penalize(&mut self, from: usize, to: usize, depth: i32) {
+        let idx = from % 22;
+        self.table[idx][to] -= depth * depth;
+        if self.table[idx][to] < -500_000 {
+            self.table[idx][to] = -500_000;
         }
     }
 
@@ -132,6 +207,7 @@ pub fn score_moves(
     killers: &Killers,
     history: &HistoryTable,
     ply: usize,
+    countermove: Move,
 ) -> Vec<(Move, i32)> {
     let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
 
@@ -145,8 +221,12 @@ pub fn score_moves(
                 let from_sq = mv_from(mv);
                 let attacker = board_pieces[from_sq];
                 score = score_capture(captured, attacker);
+            } else if mv_is_promotion(mv) {
+                score = SCORE_GOOD_CAPTURE + 100; // Promotions are very important
             } else if let Some(ks) = killers.is_killer(ply, mv) {
                 score = ks;
+            } else if mv == countermove && countermove != MOVE_NONE {
+                score = SCORE_COUNTERMOVE;
             } else {
                 let from = mv_from(mv);
                 let to = mv_to(mv);

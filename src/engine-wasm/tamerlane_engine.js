@@ -1,5 +1,3 @@
-/* @ts-self-types="./tamerlane_engine.d.ts" */
-
 /**
  * Get the best move for the given FEN position.
  * Returns "from_file,from_rank,to_file,to_rank" (1-based) or "none".
