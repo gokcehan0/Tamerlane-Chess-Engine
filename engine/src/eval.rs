@@ -3,6 +3,7 @@
 
 use crate::types::*;
 use crate::board::*;
+use crate::attack::is_attacked;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub static EVAL_SEED: AtomicU64 = AtomicU64::new(0);
@@ -21,7 +22,7 @@ const MATERIAL: [i32; 11] = [
     300,  // Catapult/Picket (diagonal slider, min 2 range)
     300,  // Giraffe (4,1 bent rider — complex but powerful)
     150,  // Minister (Ferz: 1 diagonal — weak piece)
-    10000, // King (infinite — never actually used for trade)
+    0,    // King — NEVER count in eval (always on board, counting causes phantom scores)
     150,  // Advisor (Wazir: 1 orthogonal — weak piece)
     160,  // Elephant (Alfil: 1-2 diagonal jump — somewhat weak)
     160,  // Camel (3,1 leaper — colorbound but decent)
@@ -143,6 +144,15 @@ fn get_pst(piece: Piece, file: i32, rank: i32) -> i32 {
 /// Evaluate position from the perspective of the side to move.
 /// Positive = good for side to move.
 pub fn evaluate(board: &Board) -> i32 {
+    evaluate_internal(board, false)
+}
+
+/// Evaluate with optional breakdown logging
+pub fn evaluate_with_log(board: &Board) -> i32 {
+    evaluate_internal(board, true)
+}
+
+fn evaluate_internal(board: &Board, log: bool) -> i32 {
     let mut score = 0i32; // from White's perspective
 
     for rank in 1..=10 {
@@ -163,34 +173,37 @@ pub fn evaluate(board: &Board) -> i32 {
         }
     }
 
-    // Mobility bonus (approximate - count pieces that aren't boxed in)
-    // We don't want to do full move generation here for speed, so we use a simpler metric
-    score += mobility_estimate(board);
+    let mat_pst_score = score;
 
-    // King safety: penalize exposed king
-    score += king_safety(board);
+    let mob = mobility_estimate(board);
+    score += mob;
 
-    // Development penalty: discourage moving pieces before pawns in the opening
-    score += development_penalty(board);
+    let ks = king_safety(board);
+    score += ks;
 
-    // Pawn structure evaluation: doubled, isolated, passed pawns
-    score += pawn_structure(board);
+    let dev = development_penalty(board);
+    score += dev;
 
-    // Endgame king centralization: when material is low, push king to center
-    score += endgame_eval(board);
+    let ps = pawn_structure(board);
+    score += ps;
 
-    // Tempo bonus: small advantage for having the move
-    let tempo = 12; // ~12 centipawns
+    let eg = endgame_eval(board);
+    score += eg;
 
-    // Return from side-to-move perspective
-    let mut final_score = if board.side == Color::White { score + tempo } else { -score + tempo };
+    let hp = hanging_pieces(board);
+    score += hp;
 
-    // Deterministic pseudo-random jitter based on position hash 
-    // to break ties and ensure opening variety without breaking TT consistency
-    let seed = EVAL_SEED.load(Ordering::Relaxed);
-    let jitter_base = board.hash ^ seed;
-    let jitter = (jitter_base % 11) as i32 - 5; // -5 to +5 centipawns
-    final_score += jitter;
+    let tempo = 12;
+    let final_score = if board.side == Color::White { score + tempo } else { -score + tempo };
+
+    if log && final_score.abs() > 500 {
+        #[cfg(target_arch = "wasm32")]
+        crate::console_log(&format!("EVAL BREAKDOWN: mat+pst={} mob={} ks={} dev={} ps={} eg={} hp={} total={} final={}",
+            mat_pst_score, mob, ks, dev, ps, eg, hp, score, final_score));
+        #[cfg(not(target_arch = "wasm32"))]
+        println!("EVAL BREAKDOWN: mat+pst={} mob={} ks={} dev={} ps={} eg={} hp={} total={} final={}",
+            mat_pst_score, mob, ks, dev, ps, eg, hp, score, final_score);
+    }
 
     final_score
 }
@@ -260,8 +273,8 @@ fn mobility_estimate(board: &Board) -> i32 {
         }
     }
 
-    // ~2 centipawns per mobility point
-    (white_mobility - black_mobility) * 2
+    // ~3 centipawns per mobility point (increased from 2 for stronger positional play)
+    (white_mobility - black_mobility) * 3
 }
 
 fn king_safety(board: &Board) -> i32 {
@@ -566,4 +579,71 @@ fn endgame_eval(board: &Board) -> i32 {
     }
 
     score
+}
+
+/// Hanging piece detection: small penalty for undefended pieces under attack.
+/// Capped to prevent eval inflation that causes the engine to overvalue positions.
+fn hanging_pieces(board: &Board) -> i32 {
+    let mut score = 0i32;
+
+    const PIECE_VAL: [i32; 11] = [
+        500, 325, 300, 300, 150, 0, 150, 160, 160, 140, 100,
+        //                       ^ King = 0, never penalize
+    ];
+
+    let mut total_white_penalty = 0i32;
+    let mut total_black_penalty = 0i32;
+
+    for rank in 1..=10 {
+        for file in 1..=11 {
+            let s = sq(file, rank);
+            let p = board.pieces[s];
+            if p == Piece::Empty || p.is_pawn() || p.is_king_type() { continue; }
+
+            let piece_value = PIECE_VAL[p.kind_index()];
+            if piece_value == 0 { continue; }
+
+            let is_white = p.is_white();
+            let enemy_color = if is_white { Color::Black } else { Color::White };
+            let friendly_color = if is_white { Color::White } else { Color::Black };
+
+            // Only penalize if attacked AND undefended
+            if is_attacked(board, s, enemy_color) && !is_attacked(board, s, friendly_color) {
+                // Small penalty: 25% of piece value
+                let penalty = piece_value * 25 / 100;
+                if is_white {
+                    total_white_penalty += penalty;
+                } else {
+                    total_black_penalty += penalty;
+                }
+            }
+        }
+    }
+
+    // Cap penalties to prevent eval inflation (max 400cp effect)
+    total_white_penalty = total_white_penalty.min(400);
+    total_black_penalty = total_black_penalty.min(400);
+
+    score -= total_white_penalty;
+    score += total_black_penalty;
+
+    score
+}
+
+/// Check if a square is attacked by an enemy pawn
+fn is_pawn_attacking(board: &Board, sq_idx: usize, by_color: Color) -> bool {
+    if by_color == Color::White {
+        // White pawns at sq-14 or sq-16 attack this square
+        let s1 = (sq_idx as i32 - 14) as usize;
+        let s2 = (sq_idx as i32 - 16) as usize;
+        if !is_off_board(s1) { let p = board.pieces[s1]; if p.is_pawn() && p.is_white() { return true; } }
+        if !is_off_board(s2) { let p = board.pieces[s2]; if p.is_pawn() && p.is_white() { return true; } }
+    } else {
+        // Black pawns at sq+14 or sq+16 attack this square
+        let s1 = (sq_idx as i32 + 14) as usize;
+        let s2 = (sq_idx as i32 + 16) as usize;
+        if !is_off_board(s1) { let p = board.pieces[s1]; if p.is_pawn() && p.is_black() { return true; } }
+        if !is_off_board(s2) { let p = board.pieces[s2]; if p.is_pawn() && p.is_black() { return true; } }
+    }
+    false
 }

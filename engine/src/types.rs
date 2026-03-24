@@ -123,21 +123,21 @@ impl Piece {
     /// Get the base piece kind index (0-9) for PST/material tables
     /// Rook=0, Knight=1, Catapult=2, Giraffe=3, Minister=4, King=5, Advisor=6, Elephant=7, Camel=8, Warengine=9
     pub fn kind_index(self) -> usize {
+        if self.is_pawn() {
+            return 10;
+        }
         match self {
-            Piece::WRook | Piece::BRook | Piece::WPawnRook | Piece::BPawnRook => 0,
-            Piece::WKnight | Piece::BKnight | Piece::WPawnKnight | Piece::BPawnKnight => 1,
-            Piece::WCatapult | Piece::BCatapult | Piece::WPawnCatapult | Piece::BPawnCatapult => 2,
-            Piece::WGiraffe | Piece::BGiraffe | Piece::WPawnGiraffe | Piece::BPawnGiraffe => 3,
-            Piece::WMinister | Piece::BMinister | Piece::WPawnMinister | Piece::BPawnMinister => 4,
-            Piece::WKing | Piece::BKing | Piece::WPawnKing | Piece::BPawnKing => 5,
-            Piece::WAdvisor | Piece::BAdvisor | Piece::WPawnAdvisor | Piece::BPawnAdvisor => 6,
-            Piece::WElephant | Piece::BElephant | Piece::WPawnElephant | Piece::BPawnElephant => 7,
-            Piece::WCamel | Piece::BCamel | Piece::WPawnCamel | Piece::BPawnCamel => 8,
-            Piece::WWarengine | Piece::BWarengine | Piece::WPawnWarengine | Piece::BPawnWarengine => 9,
-            Piece::WPrince | Piece::BPrince => 5,
-            Piece::WAdKing | Piece::BAdKing => 5,
-            Piece::WPawnPawn | Piece::BPawnPawn => 10, // generic pawn
-            Piece::Empty => 10,
+            Piece::WRook | Piece::BRook => 0,
+            Piece::WKnight | Piece::BKnight => 1,
+            Piece::WCatapult | Piece::BCatapult => 2,
+            Piece::WGiraffe | Piece::BGiraffe => 3,
+            Piece::WMinister | Piece::BMinister => 4,
+            Piece::WKing | Piece::BKing | Piece::WPrince | Piece::BPrince | Piece::WAdKing | Piece::BAdKing => 5,
+            Piece::WAdvisor | Piece::BAdvisor => 6,
+            Piece::WElephant | Piece::BElephant => 7,
+            Piece::WCamel | Piece::BCamel => 8,
+            Piece::WWarengine | Piece::BWarengine => 9,
+            _ => 10,
         }
     }
 

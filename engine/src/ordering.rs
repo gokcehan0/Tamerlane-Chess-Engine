@@ -149,52 +149,62 @@ impl CounterMoveTable {
 
 // ─── History heuristic ──────────────────────────────────────────
 
-/// History table: [piece_kind * 2 + color][to_sq] — compact representation
-/// Using piece_kind (0-10) * 2 + color (0-1) = 22 entries × 270 squares
+/// Butterfly history table: indexed by [side][from_sq * 270 + to_sq]
+/// This is the standard approach — each (from, to) pair gets its own score.
+/// We use a flat Vec to avoid enormous stack allocations.
 pub struct HistoryTable {
-    pub table: Box<[[i32; 270]; 22]>,
+    /// [0] = White history, [1] = Black history
+    /// Each is indexed by from_sq (0..270) * 270 + to_sq (0..270)
+    /// But most squares are off-board, so effective size is much smaller.
+    /// We use from_sq * MAILBOX_SIZE + to_sq for indexing.
+    pub white: Vec<i32>,
+    pub black: Vec<i32>,
 }
+
+const HIST_SIZE: usize = MAILBOX_SIZE * MAILBOX_SIZE;
 
 impl HistoryTable {
     pub fn new() -> Self {
         HistoryTable {
-            table: Box::new([[0; 270]; 22]),
+            white: vec![0i32; HIST_SIZE],
+            black: vec![0i32; HIST_SIZE],
         }
     }
 
-    fn index(piece: Piece) -> usize {
-        let kind = piece.kind_index();
-        let color = if piece.is_white() { 0 } else { 1 };
-        kind * 2 + color
+    #[inline]
+    fn idx(from: usize, to: usize) -> usize {
+        from * MAILBOX_SIZE + to
     }
 
     /// Record a history bonus for a move that caused a beta cutoff
-    pub fn add(&mut self, from: usize, to: usize, depth: i32) {
-        let _ = from;
-        let idx = (from % 22) as usize;
-        self.table[idx][to] += depth * depth;
-        // Age history scores to prevent overflow
-        if self.table[idx][to] > 500_000 {
-            for row in self.table.iter_mut() {
-                for val in row.iter_mut() {
-                    *val /= 2;
-                }
+    pub fn add(&mut self, from: usize, to: usize, depth: i32, is_white: bool) {
+        let i = Self::idx(from, to);
+        if i >= HIST_SIZE { return; }
+        let table = if is_white { &mut self.white } else { &mut self.black };
+        table[i] += depth * depth;
+        // Gravity: prevent overflow by halving all scores
+        if table[i] > 400_000 {
+            for val in table.iter_mut() {
+                *val /= 2;
             }
         }
     }
 
-    /// Penalize quiet moves that didn't cause a cutoff (butterfly history)
-    pub fn penalize(&mut self, from: usize, to: usize, depth: i32) {
-        let idx = from % 22;
-        self.table[idx][to] -= depth * depth;
-        if self.table[idx][to] < -500_000 {
-            self.table[idx][to] = -500_000;
+    /// Penalize quiet moves that didn't cause a cutoff
+    pub fn penalize(&mut self, from: usize, to: usize, depth: i32, is_white: bool) {
+        let i = Self::idx(from, to);
+        if i >= HIST_SIZE { return; }
+        let table = if is_white { &mut self.white } else { &mut self.black };
+        table[i] -= depth * depth;
+        if table[i] < -400_000 {
+            table[i] = -400_000;
         }
     }
 
-    pub fn score(&self, from: usize, to: usize) -> i32 {
-        let idx = from % 22;
-        self.table[idx][to]
+    pub fn score(&self, from: usize, to: usize, is_white: bool) -> i32 {
+        let i = Self::idx(from, to);
+        if i >= HIST_SIZE { return 0; }
+        if is_white { self.white[i] } else { self.black[i] }
     }
 }
 
@@ -208,6 +218,7 @@ pub fn score_moves(
     history: &HistoryTable,
     ply: usize,
     countermove: Move,
+    is_white: bool,
 ) -> Vec<(Move, i32)> {
     let mut scored: Vec<(Move, i32)> = Vec::with_capacity(moves.len());
 
@@ -230,7 +241,7 @@ pub fn score_moves(
             } else {
                 let from = mv_from(mv);
                 let to = mv_to(mv);
-                score = history.score(from, to);
+                score = history.score(from, to, is_white);
             }
         }
         scored.push((mv, score));

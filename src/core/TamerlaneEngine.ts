@@ -36,7 +36,7 @@ export class TamerlaneEngine {
   }
 
   // Same interface as the old StockfishAI
-  public async getBestMove(board: Board, timeMs = 1000, difficulty = 0): Promise<any> {
+  public async getBestMove(board: Board, timeMs = 2000, difficulty = 1): Promise<any> {
     await this.waitReady();
     
     return new Promise((resolve) => {
