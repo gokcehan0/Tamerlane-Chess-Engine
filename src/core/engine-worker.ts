@@ -1,3 +1,4 @@
+// @ts-ignore
 import init, { init_engine, get_best_move } from '../engine-wasm/tamerlane_engine.js';
 
 let isReady = false;
