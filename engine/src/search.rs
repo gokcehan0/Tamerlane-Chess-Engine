@@ -496,6 +496,10 @@ fn alpha_beta(
         }
     }
 
+    // Singular Extension: If exactly one legal move exists (forced reply), extend depth
+    let singular_ext = if moves.len() == 1 && !is_root { 1 } else { 0 };
+    let new_depth = effective_depth + singular_ext;
+
     let is_white_side = board.side == Color::White;
     let mut scored = score_moves(&moves, &board.pieces, tt_move, killers, history, ply, counter_mv, is_white_side);
     let mut best_move_local = MOVE_NONE;
@@ -545,7 +549,7 @@ fn alpha_beta(
 
         let score;
         if moves_searched == 0 {
-            score = -alpha_beta(board, effective_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, is_pv, stats);
+            score = -alpha_beta(board, new_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, is_pv, stats);
         } else {
             // ─── Late Move Reductions ─────────────────
             let mut reduction = 0;
@@ -561,21 +565,21 @@ fn alpha_beta(
                 } else if h_score > 200 {
                     reduction = (reduction - 1).max(0);
                 }
-                reduction = reduction.min(effective_depth - 2).max(0);
+                reduction = reduction.min(new_depth - 2).max(0);
                 if reduction > 0 {
                     stats.lmr_reductions += 1;
                 }
             }
 
-            let mut s = -alpha_beta(board, effective_depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats);
+            let mut s = -alpha_beta(board, new_depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats);
 
             if s > alpha && reduction > 0 {
                 stats.lmr_re_searches += 1;
-                s = -alpha_beta(board, effective_depth - 1, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats);
+                s = -alpha_beta(board, new_depth - 1, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats);
             }
 
             if s > alpha && s < beta {
-                s = -alpha_beta(board, effective_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, true, stats);
+                s = -alpha_beta(board, new_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, true, stats);
             }
 
             score = s;

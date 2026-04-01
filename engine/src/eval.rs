@@ -187,6 +187,15 @@ fn evaluate_internal(board: &Board, log: bool) -> i32 {
     let ps = pawn_structure(board);
     score += ps;
 
+    let outposts = outpost_evaluation(board);
+    score += outposts;
+
+    let leaper_ks = leaper_king_safety(board);
+    score += leaper_ks;
+
+    let overextend = overextension_penalty(board);
+    score += overextend;
+
     let eg = endgame_eval(board);
     score += eg;
 
@@ -453,7 +462,7 @@ fn pawn_structure(board: &Board) -> i32 {
             }
         }
 
-        // ─── Passed pawns bonus ────────────────────────
+        // ─── Passed pawns & Promotion Zone bonus ────────────────────────
         // White passed pawn: no black pawns ahead on this file or adjacent files
         if w_pawns_on_file[file] > 0 {
             let adv_rank = w_pawn_most_advanced[file];
@@ -473,9 +482,18 @@ fn pawn_structure(board: &Board) -> i32 {
                 if !is_passed { break; }
             }
             if is_passed && adv_rank > 1 {
-                // Bonus scales with how far advanced the pawn is
-                let bonus = 10 + (adv_rank - 1) * 5; // rank 2=15, rank 5=30, rank 9=50
+                // Bonus scales heavily at rank 8 and 9 (approaching Citadel/promotion)
+                let bonus = if adv_rank >= 8 {
+                    30 + (adv_rank - 1) * 15 // massive bonus for close promotion
+                } else {
+                    10 + (adv_rank - 1) * 5
+                };
                 score += bonus;
+            }
+            
+            // Tamerlane Citadel Promotion Path Bonus (files 2, 6, 10 are often citadels/promotion heavy)
+            if adv_rank >= 7 {
+                score += (adv_rank - 6) * 10;
             }
         }
 
@@ -497,8 +515,16 @@ fn pawn_structure(board: &Board) -> i32 {
                 if !is_passed { break; }
             }
             if is_passed && adv_rank < 10 {
-                let bonus = 10 + (10 - adv_rank) * 5;
+                let bonus = if adv_rank <= 3 {
+                    30 + (10 - adv_rank) * 15
+                } else {
+                    10 + (10 - adv_rank) * 5
+                };
                 score -= bonus;
+            }
+
+            if adv_rank <= 4 {
+                score -= (5 - adv_rank) * 10;
             }
         }
     }
@@ -525,56 +551,75 @@ fn endgame_eval(board: &Board) -> i32 {
 
     let total_material = w_material + b_material;
 
-    // Only apply endgame bonuses when material is low (less than ~2 rooks + minor piece each side)
-    if total_material > 2400 { return 0; }
-
     let mut score = 0i32;
 
-    // Encourage the winning side's king to move toward center
-    // and the losing side's king to be pushed to edge
-    let phase = 1.0 - (total_material as f64 / 2400.0); // 0.0 = midgame, 1.0 = pure endgame
+    // Phase scales from 0.0 (full board) to 1.0 (empty board). Initial Tamerlane material is ~6900.
+    let phase = (1.0 - (total_material as f64 / 6900.0)).max(0.0).min(1.0);
 
-    if let Some(wk) = board.king_sq(Color::White) {
-        let wk_file = file_brd(wk);
-        let wk_rank = rank_brd(wk);
-        // Center distance: how far from center (file 6, rank 5.5)
-        let file_dist = (wk_file - 6).abs();
-        let rank_dist = ((wk_rank * 2 - 11).abs()) / 2; // approx distance from rank 5-6
-        let center_dist = file_dist + rank_dist;
-        // In endgame, reward king being close to center
-        let king_centrality = (8 - center_dist).max(0) * 5;
-        score += (king_centrality as f64 * phase) as i32;
-    }
-
-    if let Some(bk) = board.king_sq(Color::Black) {
-        let bk_file = file_brd(bk);
-        let bk_rank = rank_brd(bk);
-        let file_dist = (bk_file - 6).abs();
-        let rank_dist = ((bk_rank * 2 - 11).abs()) / 2;
-        let center_dist = file_dist + rank_dist;
-        let king_centrality = (8 - center_dist).max(0) * 5;
-        score -= (king_centrality as f64 * phase) as i32;
-    }
-
-    // If one side has significant material advantage, encourage pushing enemy king to edge
-    if w_material > b_material + 200 {
+    // If one side has a CRUSHING advantage (>800 cp, e.g. almost two rooks), aggressively push enemy king to the edge to force checkmate!
+    // We do this regardless of the total material, to prevent the engine from "playing with its food" and never mating.
+    if w_material > b_material + 800 {
         if let Some(bk) = board.king_sq(Color::Black) {
             let bk_file = file_brd(bk);
             let bk_rank = rank_brd(bk);
-            let edge_dist_file = (bk_file - 1).min(11 - bk_file);
-            let edge_dist_rank = (bk_rank - 1).min(10 - bk_rank);
-            let edge_dist = edge_dist_file.min(edge_dist_rank);
-            // Bonus for pushing enemy king toward edge
-            score += ((4 - edge_dist).max(0) * 10) as i32;
+            // Center is file 6, rank 5/6
+            let file_dist_from_center = (bk_file - 6).abs();
+            let rank_dist_from_center = ((bk_rank * 2 - 11).abs()) / 2;
+            let center_dist = file_dist_from_center + rank_dist_from_center;
+            
+            // Massive bonus for pushing the enemy king AWAY from the center (towards edges/corners)
+            score += center_dist * 20; 
+
+            // Bonus for bringing friendly king closer to the enemy king (to assist mate)
+            if let Some(wk) = board.king_sq(Color::White) {
+                let kings_dist_file = (file_brd(wk) - bk_file).abs();
+                let kings_dist_rank = (rank_brd(wk) - bk_rank).abs();
+                let kings_dist = kings_dist_file + kings_dist_rank;
+                score += (15 - kings_dist) * 5; 
+            }
         }
-    } else if b_material > w_material + 200 {
+    } else if b_material > w_material + 800 {
         if let Some(wk) = board.king_sq(Color::White) {
             let wk_file = file_brd(wk);
             let wk_rank = rank_brd(wk);
-            let edge_dist_file = (wk_file - 1).min(11 - wk_file);
-            let edge_dist_rank = (wk_rank - 1).min(10 - wk_rank);
-            let edge_dist = edge_dist_file.min(edge_dist_rank);
-            score -= ((4 - edge_dist).max(0) * 10) as i32;
+            let file_dist_from_center = (wk_file - 6).abs();
+            let rank_dist_from_center = ((wk_rank * 2 - 11).abs()) / 2;
+            let center_dist = file_dist_from_center + rank_dist_from_center;
+            
+            // Massive penalty for White meaning Black benefits from White King being on the edge
+            score -= center_dist * 20;
+
+            if let Some(bk) = board.king_sq(Color::Black) {
+                let kings_dist_file = (file_brd(bk) - wk_file).abs();
+                let kings_dist_rank = (rank_brd(bk) - wk_rank).abs();
+                let kings_dist = kings_dist_file + kings_dist_rank;
+                score -= (15 - kings_dist) * 5;
+            }
+        }
+    }
+
+    // Only apply standard king centralization bonuses when total material is very low
+    if total_material < 3000 {
+        if let Some(wk) = board.king_sq(Color::White) {
+            let wk_file = file_brd(wk);
+            let wk_rank = rank_brd(wk);
+            // Center distance: how far from center (file 6, rank 5.5)
+            let file_dist = (wk_file - 6).abs();
+            let rank_dist = ((wk_rank * 2 - 11).abs()) / 2; // approx distance from rank 5-6
+            let center_dist = file_dist + rank_dist;
+            // In endgame, reward king being close to center
+            let king_centrality = (8 - center_dist).max(0) * 5;
+            score += (king_centrality as f64 * phase) as i32;
+        }
+
+        if let Some(bk) = board.king_sq(Color::Black) {
+            let bk_file = file_brd(bk);
+            let bk_rank = rank_brd(bk);
+            let file_dist = (bk_file - 6).abs();
+            let rank_dist = ((bk_rank * 2 - 11).abs()) / 2;
+            let center_dist = file_dist + rank_dist;
+            let king_centrality = (8 - center_dist).max(0) * 5;
+            score -= (king_centrality as f64 * phase) as i32;
         }
     }
 
@@ -646,4 +691,153 @@ fn is_pawn_attacking(board: &Board, sq_idx: usize, by_color: Color) -> bool {
         if !is_off_board(s2) { let p = board.pieces[s2]; if p.is_pawn() && p.is_black() { return true; } }
     }
     false
+}
+
+/// Outpost evaluation: Bonus for Knights, Giraffes, and Pickets safely placed in enemy territory
+fn outpost_evaluation(board: &Board) -> i32 {
+    let mut score = 0i32;
+
+    for rank in 1..=10 {
+        for file in 1..=11 {
+            let sq_idx = sq(file, rank);
+            let p = board.pieces[sq_idx];
+            
+            if p == Piece::Empty || p.is_pawn() || p.is_king_type() { continue; }
+
+            // Knights, Giraffes, and Catapults/Pickets are excellent blockaders/outpost pieces
+            let is_minor_outpost = matches!(p, Piece::WKnight | Piece::BKnight | 
+                                               Piece::WGiraffe | Piece::BGiraffe |
+                                               Piece::WCatapult | Piece::BCatapult);
+            if !is_minor_outpost { continue; }
+
+            if p.is_white() {
+                // Outpost ranks for white: 5-8
+                if rank >= 5 && rank <= 8 {
+                    // Supported by a pawn?
+                    if is_pawn_attacking(board, sq_idx, Color::White) {
+                        // Cannot be attacked by an enemy pawn?
+                        if !is_pawn_attacking(board, sq_idx, Color::Black) {
+                            score += 25; // Massive outpost bonus
+                        } else {
+                            score += 10; // Contested outpost
+                        }
+                    }
+                }
+            } else {
+                // Outpost ranks for black: 3-6
+                if rank >= 3 && rank <= 6 {
+                    if is_pawn_attacking(board, sq_idx, Color::Black) {
+                        if !is_pawn_attacking(board, sq_idx, Color::White) {
+                            score -= 25;
+                        } else {
+                            score -= 10;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    score
+}
+
+/// Overextension Penalty: Penalize pieces (Knights, Camels, Elephants, etc.) that venture deep
+/// into enemy territory WITHOUT pawn support. This prevents the engine from jumping a single piece
+/// randomly around the board ("one-man army") and forces it to play coordinated, grandmaster-like
+/// attacks with pawn support.
+fn overextension_penalty(board: &Board) -> i32 {
+    let mut score = 0i32;
+
+    for rank in 1..=10 {
+        for file in 1..=11 {
+            let sq_idx = sq(file, rank);
+            let p = board.pieces[sq_idx];
+            
+            if p == Piece::Empty || p.is_pawn() || p.is_king_type() { continue; }
+
+            // Apply to all leapers and minor pieces
+            let is_minor = matches!(p, Piece::WKnight | Piece::BKnight |
+                                       Piece::WGiraffe | Piece::BGiraffe |
+                                       Piece::WCamel | Piece::BCamel |
+                                       Piece::WElephant | Piece::BElephant |
+                                       Piece::WMinister | Piece::BMinister |
+                                       Piece::WWarengine | Piece::BWarengine |
+                                       Piece::WCatapult | Piece::BCatapult);
+            if !is_minor { continue; }
+
+            if p.is_white() {
+                // Enemy territory for White is ranks 7, 8, 9, 10
+                if rank >= 7 {
+                    let is_supported = is_pawn_attacking(board, sq_idx, Color::White);
+                    if !is_supported {
+                        // Penalize based on how deep they are
+                        let depth_penalty = (rank - 6) * 15; // rank 7: -15, rank 8: -30, rank 9: -45, rank 10: -60
+                        score -= depth_penalty;
+                    }
+                }
+            } else {
+                // Enemy territory for Black is ranks 1, 2, 3, 4
+                if rank <= 4 {
+                    let is_supported = is_pawn_attacking(board, sq_idx, Color::Black);
+                    if !is_supported {
+                        let depth_penalty = (5 - rank) * 15; // rank 4: -15, rank 3: -30, rank 2: -45, rank 1: -60
+                        score += depth_penalty; // Black penalty means positive score for White
+                    }
+                }
+            }
+        }
+    }
+    score
+}
+
+/// Tamerlane specific: Leapers (Giraffe, Camel, Warengine) threatening the King directly or the immediate shield
+fn leaper_king_safety(board: &Board) -> i32 {
+    let mut score = 0i32;
+
+    if let Some(wk) = board.king_sq(Color::White) {
+        let mut leaper_threat = 0;
+        // Simplified threat detection: check distance between black leapers and white king
+        for rank in 1..=10 {
+            for file in 1..=11 {
+                let s = sq(file, rank);
+                let p = board.pieces[s];
+                if p.is_black() {
+                    let is_leaper = matches!(p, Piece::BGiraffe | Piece::BCamel | Piece::BWarengine | Piece::BElephant);
+                    if is_leaper {
+                        // If a black leaper is within 4 squares of the white king, it's a looming threat
+                        let dist_file = (file - file_brd(wk)).abs();
+                        let dist_rank = (rank - rank_brd(wk)).abs();
+                        let max_dist = dist_file.max(dist_rank);
+                        if max_dist <= 4 {
+                            leaper_threat += 15 - (max_dist * 3); // closer = more dangerous
+                        }
+                    }
+                }
+            }
+        }
+        score -= leaper_threat;
+    }
+
+    if let Some(bk) = board.king_sq(Color::Black) {
+        let mut leaper_threat = 0;
+        for rank in 1..=10 {
+            for file in 1..=11 {
+                let s = sq(file, rank);
+                let p = board.pieces[s];
+                if p.is_white() {
+                    let is_leaper = matches!(p, Piece::WGiraffe | Piece::WCamel | Piece::WWarengine | Piece::WElephant);
+                    if is_leaper {
+                        let dist_file = (file - file_brd(bk)).abs();
+                        let dist_rank = (rank - rank_brd(bk)).abs();
+                        let max_dist = dist_file.max(dist_rank);
+                        if max_dist <= 4 {
+                            leaper_threat += 15 - (max_dist * 3);
+                        }
+                    }
+                }
+            }
+        }
+        score += leaper_threat;
+    }
+
+    score
 }
