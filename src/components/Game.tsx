@@ -306,6 +306,22 @@ export default function Game() {
                                 🔥 Master
                             </button>
                         </div>
+                        
+                        <div style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', background: '#1e1e1e', borderRadius: '6px', border: '1px solid #333' }}>
+                            <input 
+                                type="checkbox" 
+                                id="nativeEngineToggle"
+                                onChange={(e) => {
+                                    if (engineRef.current) {
+                                        engineRef.current.useWebSocket = e.target.checked;
+                                    }
+                                }}
+                                style={{ cursor: 'pointer' }}
+                            />
+                            <label htmlFor="nativeEngineToggle" style={{ color: '#ccc', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none' }}>
+                                Use Local Native Engine (Requires <code style={{color: '#4ade80'}}>cargo run -- --server</code>)
+                            </label>
+                        </div>
 
                         <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => dispatch({ type: 'NEW_GAME' })}>
                             New Game

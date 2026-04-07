@@ -165,7 +165,7 @@ pub fn search_best_move(board: &mut Board, time_limit_ms: u64, difficulty: i32) 
     let mut killers = Killers::new();
     let mut stats = SearchStats::new();
 
-    let tt = &mut state.tt;
+    let tt: &dyn TTAccess = &state.tt;
     let history = &mut state.history;
     let countermoves = &mut state.countermoves;
 
@@ -200,7 +200,7 @@ pub fn search_best_move(board: &mut Board, time_limit_ms: u64, difficulty: i32) 
         let mut score_dropped = false;
         let mut score;
         loop {
-            score = alpha_beta(board, depth, alpha, beta, 0, &mut info, tt, &mut killers, history, countermoves, true, &mut stats);
+            score = alpha_beta(board, depth, alpha, beta, 0, &mut info, tt, &mut killers, history, countermoves, true, &mut stats, difficulty);
 
             if info.stopped {
                 break;
@@ -285,7 +285,7 @@ pub fn search_best_move(board: &mut Board, time_limit_ms: u64, difficulty: i32) 
                 // Try to find the next best safe move from root
                 let moves = legal_moves(board);
                 let is_white_side = board.side == Color::White;
-                let mut scored = score_moves(&moves, &board.pieces, best_move, &killers, &history, 0, MOVE_NONE, is_white_side);
+                let mut scored = score_moves(&moves, &board.pieces, best_move, &killers, history, 0, MOVE_NONE, is_white_side);
                 
                 let mut fallback_move = MOVE_NONE;
                 let mut fallback_score = -INF;
@@ -323,7 +323,7 @@ pub fn search_best_move(board: &mut Board, time_limit_ms: u64, difficulty: i32) 
 
                         // Do a quick shallow search (depth 2) to get a rough score for this safe alternative
                         board.make_move(mv);
-                        let s = -alpha_beta(board, 2, -INF, INF, 1, &mut info, tt, &mut killers, history, countermoves, true, &mut stats);
+                        let s = -alpha_beta(board, 2, -INF, INF, 1, &mut info, tt, &mut killers, history, countermoves, true, &mut stats, difficulty);
                         board.unmake_move();
 
                         info.stopped = was_stopped;
@@ -367,12 +367,13 @@ fn alpha_beta(
     beta: i32,
     ply: usize,
     info: &mut SearchInfo,
-    tt: &mut TranspositionTable,
+    tt: &dyn TTAccess,
     killers: &mut Killers,
     history: &mut HistoryTable,
     countermoves: &mut CounterMoveTable,
     is_pv: bool,
     stats: &mut SearchStats,
+    difficulty: i32,
 ) -> i32 {
     info.check_time();
     if info.stopped { return 0; }
@@ -412,7 +413,7 @@ fn alpha_beta(
 
     // ─── TT probe ─────────────────────────────────────────
     let mut tt_move = MOVE_NONE;
-    if let Some(entry) = tt.probe(board.hash) {
+    if let Some(entry) = tt.tt_probe(board.hash) {
         tt_move = entry.best_move;
         stats.tt_hits += 1;
         if !is_pv && entry.depth as i32 >= effective_depth {
@@ -455,7 +456,7 @@ fn alpha_beta(
         board.side = board.side.flip();
         board.ply += 1;
         let r = if depth >= 6 { 3 } else { 2 };
-        let null_score = -alpha_beta(board, depth - 1 - r, -beta, -beta + 1, ply + 1, info, tt, killers, history, countermoves, false, stats);
+        let null_score = -alpha_beta(board, depth - 1 - r, -beta, -beta + 1, ply + 1, info, tt, killers, history, countermoves, false, stats, difficulty);
         board.side = board.side.flip();
         board.ply -= 1;
         board.hash = saved_hash;
@@ -468,8 +469,8 @@ fn alpha_beta(
 
     // ─── Internal Iterative Deepening (IID) ───────────────
     if tt_move == MOVE_NONE && is_pv && effective_depth >= 4 {
-        let _ = alpha_beta(board, effective_depth - 2, alpha, beta, ply, info, tt, killers, history, countermoves, true, stats);
-        if let Some(entry) = tt.probe(board.hash) {
+        let _ = alpha_beta(board, effective_depth - 2, alpha, beta, ply, info, tt, killers, history, countermoves, true, stats, difficulty);
+        if let Some(entry) = tt.tt_probe(board.hash) {
             tt_move = entry.best_move;
         }
     }
@@ -549,7 +550,7 @@ fn alpha_beta(
 
         let score;
         if moves_searched == 0 {
-            score = -alpha_beta(board, new_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, is_pv, stats);
+            score = -alpha_beta(board, new_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, is_pv, stats, difficulty);
         } else {
             // ─── Late Move Reductions ─────────────────
             let mut reduction = 0;
@@ -571,15 +572,15 @@ fn alpha_beta(
                 }
             }
 
-            let mut s = -alpha_beta(board, new_depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats);
+            let mut s = -alpha_beta(board, new_depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats, difficulty);
 
             if s > alpha && reduction > 0 {
                 stats.lmr_re_searches += 1;
-                s = -alpha_beta(board, new_depth - 1, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats);
+                s = -alpha_beta(board, new_depth - 1, -alpha - 1, -alpha, ply + 1, info, tt, killers, history, countermoves, false, stats, difficulty);
             }
 
             if s > alpha && s < beta {
-                s = -alpha_beta(board, new_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, true, stats);
+                s = -alpha_beta(board, new_depth - 1, -beta, -alpha, ply + 1, info, tt, killers, history, countermoves, true, stats, difficulty);
             }
 
             score = s;
@@ -615,7 +616,7 @@ fn alpha_beta(
                             }
                         }
                     }
-                    tt.store(board.hash, depth as i8, score_to_tt(beta, ply), TTFlag::Beta, mv);
+                    tt.tt_store(board.hash, depth as i8, score_to_tt(beta, ply), TTFlag::Beta, mv);
                     return beta;
                 }
             }
@@ -626,7 +627,7 @@ fn alpha_beta(
 
     // Store in TT
     let flag = if best_score <= alpha { TTFlag::Alpha } else { TTFlag::Exact };
-    tt.store(board.hash, depth as i8, score_to_tt(best_score, ply), flag, best_move_local);
+    tt.tt_store(board.hash, depth as i8, score_to_tt(best_score, ply), flag, best_move_local);
 
     best_score
 }
@@ -761,3 +762,265 @@ pub fn move_to_string(mv: Move, _board: &Board) -> String {
         (b'a' + (ff - 1) as u8) as char, fr,
         (b'a' + (tf - 1) as u8) as char, tr)
 }
+
+// ─── Lazy SMP Parallel Search (Native only) ─────────────────────
+// All threads share a persistent atomic TT (survives across moves).
+// Helper threads populate the shared TT; main thread's result is authoritative.
+// Includes the full blunder check from the single-thread version.
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::OnceLock;
+
+#[cfg(not(target_arch = "wasm32"))]
+static SHARED_TT: OnceLock<crate::tt::SharedTT> = OnceLock::new();
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn search_best_move_parallel(
+    board: &mut Board, 
+    time_limit_ms: u64, 
+    difficulty: i32,
+    num_threads: usize,
+) -> (Move, i32, i32, u64) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let num_threads = num_threads.max(1);
+    
+    if num_threads == 1 {
+        return search_best_move(board, time_limit_ms, difficulty);
+    }
+
+    // Persistent shared TT (survives across moves — critical for quality!)
+    // 2048MB (2GB) TT can store ~134.2 million entries, tournament standard for 16-thread CPUs.
+    let shared_tt = SHARED_TT.get_or_init(|| crate::tt::SharedTT::new(2048));
+    
+    let global_stop = Arc::new(AtomicBool::new(false));
+    let start_time = current_time_ms();
+
+    // Spawn helper threads
+    let mut handles = Vec::new();
+    
+    for thread_id in 1..num_threads {
+        let stop = Arc::clone(&global_stop);
+        let mut board_clone = board.clone();
+        let tl = time_limit_ms;
+        let diff = difficulty;
+        
+        let handle = std::thread::spawn(move || {
+            let tt_ref: &dyn TTAccess = SHARED_TT.get().unwrap();
+            let mut info = SearchInfo::new(tl);
+            info.start_time = start_time;
+            let mut killers = Killers::new();
+            let mut history = HistoryTable::new();
+            let mut countermoves = CounterMoveTable::new();
+            let mut stats = SearchStats::new();
+            
+            let max_depth = if diff <= 0 { 4 } else { 64 };
+            let mut best_score = -INF;
+
+            // Symmetry breaking: stagger the start time of threads so they don't hit the TT simultaneously
+            std::thread::sleep(std::time::Duration::from_millis(thread_id as u64 * 5));
+
+            // Symmetry breaking: Each thread skips a few initial depths based on its ID
+            // so they don't do the exact same search simultaneously.
+            let depth_offset = (thread_id % 3) as i32;
+
+            for depth in (1 + depth_offset)..=max_depth {
+                if stop.load(Ordering::Relaxed) { break; }
+                info.stopped = false;
+
+                let mut alpha = -INF;
+                let mut beta = INF;
+
+                if depth >= 5 && best_score.abs() < MATE_SCORE - 200 {
+                    alpha = best_score - 35;
+                    beta = best_score + 35;
+                }
+
+                loop {
+                    let score = alpha_beta(
+                        &mut board_clone, depth, alpha, beta, 0,
+                        &mut info, tt_ref, &mut killers, &mut history,
+                        &mut countermoves, true, &mut stats, diff,
+                    );
+
+                    if info.stopped || stop.load(Ordering::Relaxed) { break; }
+
+                    if score <= alpha { alpha = -INF; }
+                    else if score >= beta { beta = INF; }
+                    else { best_score = score; break; }
+                }
+
+                if info.stopped || stop.load(Ordering::Relaxed) { break; }
+                let elapsed = current_time_ms() - info.start_time;
+                if elapsed >= tl * 60 / 100 { break; }
+                if best_score.abs() > MATE_SCORE - 100 { break; }
+            }
+
+            (thread_id, info.nodes)
+        });
+        
+        handles.push(handle);
+    }
+
+    // ─── Main thread search (authoritative) ────────────────────
+    let main_tt: &dyn TTAccess = shared_tt;
+    let mut info = SearchInfo::new(time_limit_ms);
+    info.start_time = start_time;
+    let mut killers = Killers::new();
+    let mut history = HistoryTable::new();
+    let mut countermoves = CounterMoveTable::new();
+    let mut stats = SearchStats::new();
+
+    let max_depth = if difficulty <= 0 { 4 } else { 64 };
+    let mut best_move = MOVE_NONE;
+    let mut best_score = -INF;
+    let mut reached_depth = 0;
+
+    for depth in 1..=max_depth {
+        info.stopped = false;
+        let mut alpha = -INF;
+        let mut beta = INF;
+        let mut score_dropped = false;
+
+        if depth >= 5 && reached_depth > 0 && best_score.abs() < MATE_SCORE - 200 {
+            alpha = best_score - 35;
+            beta = best_score + 35;
+        }
+
+        let mut score;
+        loop {
+            score = alpha_beta(
+                board, depth, alpha, beta, 0,
+                &mut info, main_tt, &mut killers, &mut history,
+                &mut countermoves, true, &mut stats, difficulty,
+            );
+
+            if info.stopped { break; }
+
+            if score <= alpha {
+                alpha = -INF;
+                score_dropped = true;
+            } else if score >= beta {
+                beta = INF;
+            } else {
+                break;
+            }
+        }
+
+        if info.stopped && depth > 1 { break; }
+
+        reached_depth = depth;
+        if info.best_move != MOVE_NONE {
+            best_move = info.best_move;
+            best_score = score;
+        }
+
+        log_msg(&format!("  depth {} score {} nodes={} [SMP {} threads]", depth, score, info.nodes, num_threads));
+
+        if score.abs() > MATE_SCORE - 100 { break; }
+
+        let elapsed = current_time_ms() - info.start_time;
+        let soft_limit = if score_dropped { 85 } else { 60 };
+        if elapsed >= time_limit_ms * soft_limit / 100 { break; }
+    }
+
+    // Signal helpers to stop
+    global_stop.store(true, Ordering::Relaxed);
+
+    let mut total_nodes = info.nodes;
+    for handle in handles {
+        if let Ok((_, helper_nodes)) = handle.join() {
+            total_nodes += helper_nodes;
+        }
+    }
+
+    log_msg(&format!("STATS [SMP]: TT hits={} cutoffs={} | NMP tried={} cutoffs={} | total_nodes={} | main_nodes={}",
+        stats.tt_hits, stats.tt_cutoffs,
+        stats.null_move_tried, stats.null_move_cutoffs,
+        total_nodes, info.nodes
+    ));
+
+    // ─── ROOT BLUNDER CHECK (same as single-thread version) ─────
+    if best_move != MOVE_NONE && difficulty > 0 {
+        let from = mv_from(best_move);
+        let to = mv_to(best_move);
+        let piece = board.pieces[from];
+        let captured = mv_captured(best_move);
+        let piece_val = see_value(piece);
+        let capt_val = if captured != Piece::Empty { see_value(captured) } else { 0 };
+
+        if !piece.is_pawn() && !piece.is_king_type() && piece_val > 120 {
+            let enemy_color = if piece.is_white() { Color::Black } else { Color::White };
+            let friendly_color = if piece.is_white() { Color::White } else { Color::Black };
+
+            board.make_move(best_move);
+            let dest_attacked = crate::attack::is_attacked(board, to, enemy_color);
+            let dest_defended = crate::attack::is_attacked(board, to, friendly_color);
+            board.unmake_move();
+
+            if dest_attacked && !dest_defended && capt_val < piece_val / 2 {
+                log_msg(&format!("BLUNDER CHECK [SMP]: move puts {} (val={}) on attacked undefended sq!", 
+                    piece.kind_index(), piece_val));
+
+                let moves = legal_moves(board);
+                let is_white_side = board.side == Color::White;
+                let mut scored = score_moves(&moves, &board.pieces, best_move, &killers, &history, 0, MOVE_NONE, is_white_side);
+                
+                let mut fallback_move = MOVE_NONE;
+                let mut fallback_score = -INF;
+                let mut safe_moves_tried = 0;
+
+                for i in 0..scored.len() {
+                    let mv = pick_best(&mut scored, i);
+                    if mv == best_move { continue; }
+
+                    let mv_to_sq = mv_to(mv);
+                    let mv_piece = board.pieces[mv_from(mv)];
+                    let mv_capt = mv_captured(mv);
+                    let mv_piece_val = see_value(mv_piece);
+                    let mv_capt_val = if mv_capt != Piece::Empty { see_value(mv_capt) } else { 0 };
+
+                    let mut is_safe = true;
+                    if !mv_piece.is_pawn() && !mv_piece.is_king_type() && mv_piece_val > 120 {
+                        board.make_move(mv);
+                        let atk = crate::attack::is_attacked(board, mv_to_sq, enemy_color);
+                        board.unmake_move();
+                        if atk && mv_capt_val < mv_piece_val / 2 {
+                            is_safe = false;
+                        }
+                    }
+
+                    if is_safe {
+                        let was_stopped = info.stopped;
+                        info.stopped = false;
+                        board.make_move(mv);
+                        let s = -alpha_beta(board, 2, -INF, INF, 1, &mut info, main_tt, &mut killers, &mut history, &mut countermoves, true, &mut stats, difficulty);
+                        board.unmake_move();
+                        info.stopped = was_stopped;
+
+                        if s > fallback_score {
+                            fallback_score = s;
+                            fallback_move = mv;
+                        }
+                        safe_moves_tried += 1;
+                        if safe_moves_tried >= 3 { break; }
+                    }
+                }
+
+                if fallback_move != MOVE_NONE {
+                    log_msg(&format!("BLUNDER AVOIDED [SMP]: switching to safe move, score={}", fallback_score));
+                    best_move = fallback_move;
+                    best_score = fallback_score;
+                }
+            }
+        }
+    }
+
+    if difficulty <= 0 {
+        best_move = maybe_weaken(board, best_move);
+    }
+
+    (best_move, best_score, reached_depth, total_nodes)
+}
+

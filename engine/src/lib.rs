@@ -10,6 +10,11 @@ pub mod tt;
 pub mod ordering;
 pub mod search;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod uci;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod server;
+
 use wasm_bindgen::prelude::*;
 use crate::types::*;
 use crate::board::Board;
