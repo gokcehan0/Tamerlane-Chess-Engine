@@ -167,7 +167,8 @@ Tamerlane-Chess-Engine/
 │
 └── package.json           <-- Node dependencies
 ```
-
+> [!NOTE]
+>Bu proje, bir öğrenci olarak kendi imkanlarım ve öğrenme sürecim içinde geliştirdiğim bir Timur Satrancı motorudur. Türk dünyasının zengin strateji mirasına küçük de olsa bir katkı sunabilmek amacıyla ortaya çıkmıştır.
 ## 🔮 Future Roadmap
 
 *   **Staged Move Generation:** Generating captures first to improve early Alpha-Beta cutoffs before generating quiet moves, saving node calculations.
