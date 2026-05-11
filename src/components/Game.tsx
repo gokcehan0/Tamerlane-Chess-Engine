@@ -307,20 +307,25 @@ export default function Game() {
                             </button>
                         </div>
                         
-                        <div style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', background: '#1e1e1e', borderRadius: '6px', border: '1px solid #333' }}>
-                            <input 
-                                type="checkbox" 
-                                id="nativeEngineToggle"
-                                onChange={(e) => {
-                                    if (engineRef.current) {
-                                        engineRef.current.useWebSocket = e.target.checked;
-                                    }
-                                }}
-                                style={{ cursor: 'pointer' }}
-                            />
-                            <label htmlFor="nativeEngineToggle" style={{ color: '#ccc', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none' }}>
-                                Use Local Native Engine (Requires <code style={{color: '#4ade80'}}>cargo run -- --server</code>)
-                            </label>
+                        <div className="native-engine-toggle" style={{ marginBottom: '0.75rem', padding: '0.5rem', background: '#1e1e1e', borderRadius: '6px', border: '1px solid #333' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <input 
+                                    type="checkbox" 
+                                    id="nativeEngineToggle"
+                                    onChange={(e) => {
+                                        if (engineRef.current) {
+                                            engineRef.current.useWebSocket = e.target.checked;
+                                        }
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                />
+                                <label htmlFor="nativeEngineToggle" style={{ color: '#ccc', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none' }}>
+                                    Use Local Native Engine (Requires <code style={{color: '#4ade80'}}>cargo run -- --server</code>)
+                                </label>
+                            </div>
+                            <p style={{ color: '#f59e0b', fontSize: '0.75rem', marginTop: '0.35rem', paddingLeft: '1.25rem', lineHeight: '1.3' }}>
+                                ⚠️ This connects to a Rust engine running on your PC, not in the browser. You must have the server running locally.
+                            </p>
                         </div>
 
                         <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => dispatch({ type: 'NEW_GAME' })}>

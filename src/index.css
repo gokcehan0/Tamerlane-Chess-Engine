@@ -550,9 +550,18 @@ body {
     gap: 1rem;
   }
 
+  .game-area {
+    order: -1;
+  }
+
   .sidebar {
     width: 100%;
     max-width: 550px;
+    order: 1;
+  }
+
+  .native-engine-toggle {
+    display: none !important;
   }
 }
 
