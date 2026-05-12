@@ -9,6 +9,7 @@ import { Color, PieceType } from '../core/types';
 import GameInfo from './GameInfo';
 import CapturedPieces from './CapturedPieces';
 import { getGameStatus, GameStatus } from '../core/GameLogic';
+import { saveBotGameResult, MoveRecord } from '../core/statsService';
 
 interface GameState {
     boardObj: Board;
@@ -20,6 +21,7 @@ interface GameState {
     blackCaptured: PieceType[];
     checkSquare?: number;
     moveCount: number;
+    moveHistory: MoveRecord[];
 }
 
 type GameAction = 
@@ -133,6 +135,14 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 }
             }
 
+            // Track move for stats
+            const moveRecord: MoveRecord = {
+                from,
+                to,
+                piece,
+                captured: capturedPiece !== PieceType.EMPTY ? capturedPiece : undefined,
+            };
+
             return {
                 ...state,
                 boardObj: newBoard,
@@ -143,7 +153,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 moveCount: state.moveCount + 1,
                 whiteCaptured: newWhiteCaptured,
                 blackCaptured: newBlackCaptured,
-                checkSquare: currentCheckSquare
+                checkSquare: currentCheckSquare,
+                moveHistory: [...state.moveHistory, moveRecord]
             };
         }
         case 'NEW_GAME': {
@@ -158,7 +169,8 @@ function gameReducer(state: GameState, action: GameAction): GameState {
                 moveCount: 0,
                 whiteCaptured: [],
                 blackCaptured: [],
-                checkSquare: undefined
+                checkSquare: undefined,
+                moveHistory: []
             };
         }
         default:
@@ -179,11 +191,15 @@ export default function Game() {
     const [state, dispatch] = useReducer(gameReducer, null as any);
     const [difficulty, setDifficulty] = useState<Difficulty>('master');
     const engineRef = useRef<TamerlaneEngine | null>(null);
+    const gameStartTime = useRef<number>(Date.now());
+    const statsSavedRef = useRef<boolean>(false);
 
     // Initialize Game & Bot
     useEffect(() => {
         if (!state) {
             dispatch({ type: 'NEW_GAME' });
+            gameStartTime.current = Date.now();
+            statsSavedRef.current = false;
         }
         if (!engineRef.current) {
             engineRef.current = new TamerlaneEngine();
@@ -191,6 +207,28 @@ export default function Game() {
             engineRef.current.waitReady().then(() => console.log('Tamerlane Engine Ready'));
         }
     }, [difficulty, state]);
+
+    // Save stats when game ends
+    useEffect(() => {
+        if (state && state.isGameOver && !statsSavedRef.current) {
+            statsSavedRef.current = true;
+            const durationSeconds = Math.round((Date.now() - gameStartTime.current) / 1000);
+            const winner = state.gameStatusMsg.includes('Stalemate') || state.gameStatusMsg.includes('Draw')
+                ? 'draw'
+                : (state.boardObj.getSide() === Color.WHITE ? 'black' : 'white');
+
+            saveBotGameResult({
+                result: winner === 'draw' ? 'stalemate' : 'checkmate',
+                winner: winner as 'white' | 'black' | 'draw',
+                difficulty,
+                moveCount: state.moveCount,
+                durationSeconds,
+                moves: state.moveHistory,
+                filesBrd: state.boardObj.getFilesBrd(),
+                ranksBrd: state.boardObj.getRanksBrd(),
+            });
+        }
+    }, [state?.isGameOver]);
 
     // Bot Move Logic
     useEffect(() => {
@@ -328,7 +366,11 @@ export default function Game() {
                             </p>
                         </div>
 
-                        <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => dispatch({ type: 'NEW_GAME' })}>
+                        <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => {
+                            dispatch({ type: 'NEW_GAME' });
+                            gameStartTime.current = Date.now();
+                            statsSavedRef.current = false;
+                        }}>
                             New Game
                         </button>
                     </div>
